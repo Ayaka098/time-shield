@@ -1,10 +1,8 @@
 // ドメインモデルの型定義。時間は分単位（5分刻み前提）で扱う。
 export type TaskType = "MUST" | "SHOULD";
 export type TaskPriority = "HIGH" | "MED" | "LOW";
-export type StarterType = "SETUP" | "OPEN_APP" | "MICRO_ACTION";
-export type DeviceType = "smartphone" | "pc" | "either";
-export type PlaceType = "home" | "school" | "anywhere";
-export type FocusLevel = 0 | 1 | 2;
+export type PlaceOption = "school" | "library" | "home" | "transit";
+export type ConditionOption = "pc" | "smartphone" | "quiet" | "internet";
 export type Mode = "NORMAL" | "ENERGY_SAVING";
 
 export interface Task {
@@ -14,14 +12,8 @@ export interface Task {
   priority: TaskPriority;
   estimatedMinutes: number;
   deadline?: string; // ISO文字列（MUSTのみ必須）
-  starterStep: string; // 最初の一手（短文）
-  starterType: StarterType;
-  requiresInternet: boolean;
-  requiresSeated: boolean;
-  oneHandOk: boolean;
-  device: DeviceType;
-  place: PlaceType;
-  deepFocusPreferred: boolean;
+  allowedPlaces: PlaceOption[]; // できる場所の候補
+  requiredConditions: ConditionOption[]; // 必要条件
   shouldPolicy?: {
     minPerWeekSessions: number;
   };
@@ -31,7 +23,7 @@ export interface Task {
   };
 }
 
-export type TimeBlockType = "FIXED" | "STABLE" | "UNSTABLE" | "FLEX_MOVE";
+export type TimeBlockType = "FIXED" | "FREE" | "TRANSIT";
 
 export interface TimeBlock {
   id: string;
@@ -39,17 +31,11 @@ export interface TimeBlock {
   startMinutes: number; // 0-1435, 5分刻み想定
   endMinutes: number; // startMinutes < endMinutes
   type: TimeBlockType;
-  place: PlaceType;
-  internetAvailable: boolean;
-  seatedLikely: boolean;
-  focusLevel: FocusLevel;
-  meta?: {
-    title?: string;
-  };
-  forFlexMove?: {
-    earliestDepartureMinutes?: number;
-    latestDepartureMinutes?: number;
-  };
+  place: PlaceOption;
+  availableConditions: ConditionOption[]; // このブロックで満たせる条件
+  bufferBeforeMinutes?: number;
+  bufferAfterMinutes?: number;
+  title?: string; // 固定予定名など
 }
 
 export type ScheduleItemKind = "FIXED" | "TASK" | "MOVE" | "GAP" | "SHORTAGE";

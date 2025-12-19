@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import Migrate from "./migrate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <Migrate />
         <nav className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center gap-4 text-sm font-semibold text-zinc-700">
             <Link className="rounded-lg px-3 py-2 hover:bg-zinc-100" href="/focus">

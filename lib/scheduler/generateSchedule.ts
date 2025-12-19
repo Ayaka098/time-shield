@@ -1,4 +1,12 @@
-import { AppState, ScheduleItem, SessionLog, Task, TaskPriority, TimeBlock } from "../types";
+import {
+  AppState,
+  ConditionOption,
+  ScheduleItem,
+  SessionLog,
+  Task,
+  TaskPriority,
+  TimeBlock,
+} from "../types";
 
 type GenerateParams = {
   tasks: Task[];
@@ -7,6 +15,7 @@ type GenerateParams = {
   mode: AppState["mode"];
   weeklyProgress: AppState["weeklyProgress"];
   sessionLogs?: SessionLog[];
+  debug?: boolean;
 };
 
 type Slot = {
@@ -15,9 +24,7 @@ type Slot = {
   blockId: string | null;
   blockType: TimeBlock["type"] | null;
   place?: TimeBlock["place"];
-  internetAvailable?: boolean;
-  seatedLikely?: boolean;
-  focusLevel?: TimeBlock["focusLevel"];
+  availableConditions?: ConditionOption[];
 };
 
 const SLOT_MINUTES = 5;
@@ -35,43 +42,43 @@ const toTime = (minutes: number) => {
   return `${h}:${m}`;
 };
 
-const splitBlocksIntoSlots = (
-  blocks: TimeBlock[],
-  date: string,
-  consumed: { start: number; end: number }[] = []
-): Slot[] => {
+const splitBlocksIntoSlots = (blocks: TimeBlock[], date: string): Slot[] => {
   const slots: Slot[] = [];
 
   blocks
     .filter((b) => b.date === date)
     .sort((a, b) => a.startMinutes - b.startMinutes)
     .forEach((block) => {
+      const bufferBefore = block.bufferBeforeMinutes ?? 0;
+      const bufferAfter = block.bufferAfterMinutes ?? 0;
+      const usableStart =
+        block.type === "FIXED" ? Math.max(0, block.startMinutes - bufferBefore) : block.startMinutes + bufferBefore;
+      const usableEnd =
+        block.type === "FIXED" ? Math.min(24 * 60, block.endMinutes + bufferAfter) : block.endMinutes - bufferAfter;
+
       if (block.type === "FIXED") {
         slots.push({
-          start: block.startMinutes,
-          end: block.endMinutes,
+          start: usableStart,
+          end: usableEnd,
           blockId: block.id,
           blockType: "FIXED",
+          place: block.place,
+          availableConditions: block.availableConditions,
         });
         return;
       }
 
-      let cursor = block.startMinutes;
-      while (cursor < block.endMinutes) {
-        const next = Math.min(cursor + SLOT_MINUTES, block.endMinutes);
-        const overlapsConsumed = consumed.some((c) => !(next <= c.start || cursor >= c.end));
-        if (!overlapsConsumed) {
-          slots.push({
-            start: cursor,
-            end: next,
-            blockId: block.id,
-            blockType: block.type,
-            place: block.place,
-            internetAvailable: block.internetAvailable,
-            seatedLikely: block.seatedLikely,
-            focusLevel: block.focusLevel,
-          });
-        }
+      let cursor = usableStart;
+      while (cursor < usableEnd) {
+        const next = Math.min(cursor + SLOT_MINUTES, usableEnd);
+        slots.push({
+          start: cursor,
+          end: next,
+          blockId: block.id,
+          blockType: block.type,
+          place: block.place,
+          availableConditions: block.availableConditions,
+        });
         cursor = next;
       }
     });
@@ -126,27 +133,28 @@ const sortShouldTasks = (
       return priorityScore[b.priority] - priorityScore[a.priority];
     });
 
-const canPlaceOnUnstable = (slot: Slot, task: Task) => {
-  if (slot.blockType !== "UNSTABLE") return true;
-  if (!slot.internetAvailable && task.requiresInternet) return false;
-  if (!slot.seatedLikely && task.requiresSeated) return false;
-  if (task.device === "pc") return false;
-  if (!slot.seatedLikely && !task.oneHandOk) return false;
-  return true;
+const canPlaceOnSlot = (slot: Slot, task: Task) => {
+  if (!slot.place) return { ok: false, reason: "場所が不一致" as const };
+  const allowedPlaces = task.allowedPlaces?.length ? task.allowedPlaces : ["school", "library", "home", "transit"];
+  if (!allowedPlaces.includes(slot.place)) return { ok: false, reason: "場所が不一致" as const };
+  const available = new Set(slot.availableConditions ?? []);
+  const required = task.requiredConditions ?? [];
+  const ok = required.every((c) => available.has(c));
+  if (!ok) return { ok: false, reason: "条件が不足" as const };
+  return { ok: true as const };
 };
 
 const energyScore = (task: Task) => {
+  // 手軽さを簡易スコア化。スマホ・静か不要・通信不要ならスコア高。
   let score = 0;
-  if (task.oneHandOk) score += 2;
-  if (!task.requiresSeated) score += 1;
-  if (!task.requiresInternet) score += 1;
-  if (task.device !== "pc") score += 1;
-  if (!task.deepFocusPreferred) score += 1;
+  const cond = new Set(task.requiredConditions ?? []);
+  if (!cond.has("pc")) score += 2;
+  if (cond.has("smartphone")) score += 1;
+  if (!cond.has("quiet")) score += 1;
+  if (!cond.has("internet")) score += 1;
+  if (task.allowedPlaces.includes("transit")) score += 1;
   return score;
 };
-
-const sumDeepFocusMinutes = (tasks: Task[]) =>
-  tasks.filter((t) => t.deepFocusPreferred).reduce((acc, t) => acc + t.estimatedMinutes, 0);
 
 export const generateSchedule = ({
   tasks,
@@ -155,34 +163,10 @@ export const generateSchedule = ({
   mode,
   weeklyProgress,
   sessionLogs = [],
-}: GenerateParams): { items: ScheduleItem[]; overdueRisk: boolean } => {
-  const moveItems: ScheduleItem[] = [];
-  const consumedByMove: { start: number; end: number }[] = [];
-  const flexBlocks = blocks.filter((b) => b.date === date && b.type === "FLEX_MOVE");
-  const deepFocusTotal = sumDeepFocusMinutes(tasks);
-  const moveDuration = 30; // 分
-
-  flexBlocks.forEach((flex) => {
-    const early = deepFocusTotal >= 90;
-    const startBase = early
-      ? flex.forFlexMove?.earliestDepartureMinutes ?? flex.startMinutes
-      : flex.forFlexMove?.latestDepartureMinutes ?? Math.max(flex.startMinutes, flex.endMinutes - moveDuration);
-    const start = Math.min(Math.max(startBase, flex.startMinutes), flex.endMinutes);
-    const end = Math.min(start + moveDuration, flex.endMinutes);
-    consumedByMove.push({ start, end });
-    moveItems.push({
-      id: `move-${flex.id}`,
-      date,
-      start: toTime(start),
-      end: toTime(end),
-      kind: "MOVE",
-      blockId: flex.id,
-      modeTag: early ? mode : undefined,
-      reason: early ? "集中タスクが多いので早めに学校へ" : "移動時間を確保しました",
-    });
-  });
-
-  const slots = splitBlocksIntoSlots(blocks, date, consumedByMove);
+  debug = false,
+}: GenerateParams): { items: ScheduleItem[]; overdueRisk: boolean; debugInfo?: DebugEntry[] } => {
+  const slots = splitBlocksIntoSlots(blocks, date);
+  const debugLogs: DebugEntry[] = [];
 
   const fixedItems: ScheduleItem[] = slots
     .filter((s) => s.blockType === "FIXED")
@@ -213,14 +197,35 @@ export const generateSchedule = ({
   const placeTask = (task: Task) => {
     const needed = Math.ceil(task.estimatedMinutes / SLOT_MINUTES);
     const pickedSlots: Slot[] = [];
+    let matchedSlots = 0;
+    let lastRejectReason: string | undefined;
 
     for (const slot of remainingSlots) {
-      if (!canPlaceOnUnstable(slot, task)) continue;
+      const res = canPlaceOnSlot(slot, task);
+      if (!res.ok) {
+        lastRejectReason = res.reason;
+        continue;
+      }
+      matchedSlots += 1;
       pickedSlots.push(slot);
       if (pickedSlots.length >= needed) break;
     }
 
     if (pickedSlots.length < needed) {
+      if (debug) {
+        debugLogs.push({
+          taskId: task.id,
+          title: task.title,
+          placed: false,
+          reason:
+            matchedSlots === 0
+              ? lastRejectReason ?? "条件を満たすスロットなし"
+              : "一致スロットはあるが時間が不足",
+          matchedSlots,
+          neededSlots: needed,
+          usedSlots: [],
+        });
+      }
       return { placed: false, used: [] as Slot[] };
     }
 
@@ -230,7 +235,7 @@ export const generateSchedule = ({
       (s) => !usedIds.has(`${s.blockId}-${s.start}-${s.end}`)
     );
 
-    items.push({
+    const item: ScheduleItem = {
       id: `task-${task.id}-${pickedSlots[0].start}`,
       date,
       start: toTime(pickedSlots[0].start),
@@ -239,7 +244,26 @@ export const generateSchedule = ({
       taskId: task.id,
       blockId: pickedSlots[0].blockId ?? undefined,
       modeTag: mode,
-    });
+    };
+    items.push(item);
+
+    if (debug) {
+      debugLogs.push({
+        taskId: task.id,
+        title: task.title,
+        placed: true,
+        reason: `一致スロット: ${pickedSlots.length} / 必要 ${needed}`,
+        matchedSlots,
+        neededSlots: needed,
+        usedSlots: pickedSlots.map((s) => ({
+          start: toTime(s.start),
+          end: toTime(s.end),
+          place: s.place,
+          blockId: s.blockId ?? undefined,
+          conditions: s.availableConditions ?? [],
+        })),
+      });
+    }
 
     return { placed: true, used: pickedSlots };
   };
@@ -294,11 +318,27 @@ export const generateSchedule = ({
   }
 
   // sort output (fixed + tasks + shortage) by start time
-  const merged = [...fixedItems, ...moveItems, ...items].sort((a, b) => {
+  const merged = [...fixedItems, ...items].sort((a, b) => {
     const aStart = toMinutes(a.start);
     const bStart = toMinutes(b.start);
     return aStart - bStart;
   });
 
-  return { items: merged, overdueRisk };
+  return { items: merged, overdueRisk, debugInfo: debug ? debugLogs : undefined };
+};
+
+type DebugEntry = {
+  taskId: string;
+  title: string;
+  placed: boolean;
+  reason?: string;
+  matchedSlots?: number;
+  neededSlots?: number;
+  usedSlots: {
+    start: string;
+    end: string;
+    place?: string;
+    blockId?: string;
+    conditions?: string[];
+  }[];
 };

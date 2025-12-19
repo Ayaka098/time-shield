@@ -7,6 +7,7 @@ import { AppState, SessionLog, Task, TimeBlock } from "@/lib/types";
 import { useLocalStorageState } from "@/lib/hooks/useLocalStorageState";
 import { generateSchedule } from "@/lib/scheduler/generateSchedule";
 import { getISOWeekKey, minutesFromTime, todayKey } from "@/lib/date";
+import { taskTypeLabel, priorityLabel, modeLabel } from "@/lib/labels";
 
 export default function FocusPage() {
   const [tasks, , tasksHydrated] = useLocalStorageState<Task[]>(storage.keys.tasks, []);
@@ -234,7 +235,7 @@ export default function FocusPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
-              {isEnergySaving ? "省エネモード" : "通常モード"}
+              {isEnergySaving ? `${modeLabel.ENERGY_SAVING}モード` : `${modeLabel.NORMAL}モード`}
             </span>
             {isEnergySaving && (
               <button
@@ -251,27 +252,31 @@ export default function FocusPage() {
           <p className="text-sm text-zinc-500">今やること</p>
           <div className="mt-2 flex items-center gap-2">
             <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
-              {currentTask.task.type}
+              {taskTypeLabel[currentTask.task.type]}
             </span>
             <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-              優先度: {currentTask.task.priority}
+              優先度: {priorityLabel[currentTask.task.priority]}
             </span>
           </div>
           <h2 className="mt-3 text-2xl font-bold leading-tight text-zinc-950 sm:text-3xl">
             {currentTask.task.title}
           </h2>
 
-          <div className="mt-6 rounded-2xl bg-orange-50 px-4 py-3">
-            <p className="text-xs font-semibold text-orange-700">最初の一手</p>
-            <p className="mt-2 text-lg font-semibold text-zinc-900">
-              {currentTask.task.starterStep ?? "最初の一手が未設定です"}
-            </p>
-            {currentTask.item && (
-              <p className="mt-2 text-xs text-orange-700">
-                次の開始時刻: {currentTask.item.start}
+          {currentTask.item && (
+            <div className="mt-6 rounded-2xl bg-orange-50 px-4 py-3">
+              <p className="text-xs font-semibold text-orange-700">次の開始時刻</p>
+              <p className="mt-2 text-lg font-semibold text-zinc-900">{currentTask.item.start}</p>
+              <p className="mt-2 text-sm text-orange-700">
+                できる場所: {(currentTask.task.allowedPlaces ?? []).join(" / ")}
               </p>
-            )}
-          </div>
+              <p className="text-sm text-orange-700">
+                条件:{" "}
+                {(currentTask.task.requiredConditions ?? []).length
+                  ? currentTask.task.requiredConditions.join(" / ")
+                  : "なし"}
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="flex flex-col gap-3">
