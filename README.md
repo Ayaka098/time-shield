@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TimeShield (MVP v1.0.0)
 
-## Getting Started
+個人向けのフォーカス補助ツール。ローカル保存のみで、次にやる一手を自動配置して提示する。
 
-First, run the development server:
+## MVP 完成条件（達成済み）
+- タスク/ブロックの入力・保存・編集・削除ができる（ローカルのみ）
+- ルールベースのスケジューラが 5 分刻みで自動配置し、タイムラインとフォーカスで表示できる
+- 省エネモードや繁忙時の縮小、FLEX_MOVE 早出ロジックを含む
+- セッションログ記録（開始/完了）と SHOULD の週進捗カウントが動作
+- データのエクスポート/インポート（JSON）、テンプレ適用ができる
 
+### スコープに含む
+- ローカル保存（tasks/blocks/appState/weeklyProgress/sessionLogs/テンプレ）
+- フォーカス表示（次にやること＋最初の一手）
+- 1 日のタイムライン表示（不足・モードタグ・状態表示）
+- 省エネ・義務優先の切替、FLEX_MOVE の移動挿入
+
+### 意図的にやらないこと（v1では未対応）
+- 通知・リマインド
+- 外部カレンダー/アカウント連携
+- AI 最適化・推定時間
+- クラウド同期
+- 週進捗の自動再配置や高度な最適化
+
+v2 以降で追加するものは明示的に新スコープとして扱う。
+
+## 毎日の使い方（3ステップ）
+1. 朝/起動時: `/focus` を開く（次にやること＋一手が出る）
+2. 予定変更時: `/blocks` で今日のブロックを更新 → `/timeline` で自動配置を確認
+3. 夜: ログは見なくてOK（罪悪感ゼロの運用）
+
+### うまくいかない日の扱い
+- 省エネモードにする（/focus の「今は無理」またはタグで切替）
+- SHORTAGE 表示は責めない。今日は回らなくてもOK
+- 成長タスクが入らなくても「義務優先の日」として流す
+
+### バックアップ頻度の目安
+- /settings から JSON エクスポートを週 1 回程度（手動バックアップ）
+
+## 起動方法
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 本番ビルド確認
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 画面一覧
+- `/focus` : 今やること + 最初の一手。省エネ切替・開始/完了ログ記録。
+- `/timeline` : 1 日の自動配置結果（モードタグ/状態/不足表示）。
+- `/tasks` : タスク管理（StarterStep 必須、SHOULD の週進捗表示）。
+- `/blocks` : 今日のブロック入力 + テンプレ適用/保存、プリセット挿入。
+- `/settings` : バックアップ/復元/初期化、簡易統計。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## メモ（凍結前の確認）
+- TODO/FIXME は排除済み、不要な console.log なし。
+- 初期ロードを軽くするため、スケジューラは依存変化時のみ実行。
+- 依存ライブラリ追加なし。PWA は manifest のみ簡易対応（外部送信なし）。
